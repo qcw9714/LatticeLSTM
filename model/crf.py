@@ -30,7 +30,7 @@ class CRF(nn.Module):
 
     def __init__(self, tagset_size, gpu):
         super(CRF, self).__init__()
-        print "build batched crf..."
+        print("build batched crf...")
         self.gpu = gpu
         # Matrix of transition parameters.  Entry i,j is the score of transitioning *to* i *from* j.
         self.average_batch = False
@@ -56,51 +56,73 @@ class CRF(nn.Module):
                 feats: (batch, seq_len, self.tag_size+2)
                 masks: (batch, seq_len)
         """
+        #print("start calculate PZ!")
+        #print(feats.shape)   ######(batch_size, sent_len, self.tag_size+2)
+        #print(mask.shape)    ######(batch_size, sent_len)
         batch_size = feats.size(0)
         seq_len = feats.size(1)
         tag_size = feats.size(2)
         # print feats.view(seq_len, tag_size)
         assert(tag_size == self.tagset_size+2)
         mask = mask.transpose(1,0).contiguous()
+        #print(mask.shape)    ######(sent_len, batch_size)
         ins_num = seq_len * batch_size
+        #print(ins_num)       ### seq_len * batch_size
         ## be careful the view shape, it is .view(ins_num, 1, tag_size) but not .view(ins_num, tag_size, 1)
         feats = feats.transpose(1,0).contiguous().view(ins_num,1, tag_size).expand(ins_num, tag_size, tag_size)
+        #print(feats.shape)   ### (seq_len * batch_size, tag_size, tag_size)
         ## need to consider start
         scores = feats + self.transitions.view(1,tag_size,tag_size).expand(ins_num, tag_size, tag_size)
+        #print(scores.shape)  ### (seq_len * batch_size, tag_size, tag_size)
         scores = scores.view(seq_len, batch_size, tag_size, tag_size)
+        #print(scores.shape)  ### (seq_len, batch_size, tag_size, tag_size)
         # build iter
         seq_iter = enumerate(scores)
-        _, inivalues = seq_iter.next()  # bat_size * from_target_size * to_target_size
+        #_, inivalues = seq_iter.next()  # bat_size * from_target_size * to_target_size
+        _, inivalues = next(seq_iter)
+        #print(inivalues.shape)   ###(batch_size, tag_size, tag_size)
         # only need start from start_tag
         partition = inivalues[:, START_TAG, :].clone().view(batch_size, tag_size, 1)  # bat_size * to_target_size
-
+        #print(inivalues[:, START_TAG, :].shape)     ###(batch_size, tag_size)
+        #print(partition.shape)                      ###(batch_size, tag_size, 1)
         ## add start score (from start to all tag, duplicate to batch_size)
         # partition = partition + self.transitions[START_TAG,:].view(1, tag_size, 1).expand(batch_size, tag_size, 1)
         # iter over last scores
         for idx, cur_values in seq_iter:
+            #print(idx)
             # previous to_target is current from_target
-            # partition: previous results log(exp(from_target)), #(batch_size * from_target)
+            # partition: previous results log(exp(from_target)), #(batch_size * from_target)  (batch_size, tag_size, 1)
             # cur_values: bat_size * from_target * to_target
-            
+            #print(cur_values.shape)    ###(batch_size, tag_size, tag_size)
             cur_values = cur_values + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
+            #print(cur_values.shape)    ###(batch_size, tag_size, tag_size)
             cur_partition = log_sum_exp(cur_values, tag_size)
+            #print(cur_partition.shape)  ###(batch_size, tag_size)
             # print cur_partition.data
             
                 # (bat_size * from_target * to_target) -> (bat_size * to_target)
             # partition = utils.switch(partition, cur_partition, mask[idx].view(bat_size, 1).expand(bat_size, self.tagset_size)).view(bat_size, -1)
             mask_idx = mask[idx, :].view(batch_size, 1).expand(batch_size, tag_size)
+            #print(mask_idx.shape)       ###(batch_size, tag_size)
             
             ## effective updated partition part, only keep the partition value of mask value = 1
-            masked_cur_partition = cur_partition.masked_select(mask_idx)
+            masked_cur_partition = cur_partition.masked_select(mask_idx.bool())
+            #print(masked_cur_partition.shape)       ###(tag_size)
             ## let mask_idx broadcastable, to disable warning
             mask_idx = mask_idx.contiguous().view(batch_size, tag_size, 1)
+            #print(mask_idx.shape)       ###(batch_size, tag_size, 1)
 
             ## replace the partition where the maskvalue=1, other partition value keeps the same
-            partition.masked_scatter_(mask_idx, masked_cur_partition)  
+            partition.masked_scatter_(mask_idx.bool(), masked_cur_partition)  
+            #print(partition.shape)      ###(batch_size, tag_size, 1)
         # until the last state, add transition score for all partition (and do log_sum_exp) then select the value in STOP_TAG
         cur_values = self.transitions.view(1,tag_size, tag_size).expand(batch_size, tag_size, tag_size) + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
         cur_partition = log_sum_exp(cur_values, tag_size)
+        #print(cur_partition.shape)    ###(batch_size, tag_size)
         final_partition = cur_partition[:, STOP_TAG]
+        #print(final_partition.shape)  ###(batch_size)
+        #print(final_partition.sum())
+        #print("end calculate PZ!")
         return final_partition.sum(), scores
 
 
@@ -138,9 +160,11 @@ class CRF(nn.Module):
         ##  reverse mask (bug for mask = 1- mask, use this as alternative choice)
         # mask = 1 + (-1)*mask
         mask =  (1 - mask.long()).byte()
-        _, inivalues = seq_iter.next()  # bat_size * from_target_size * to_target_size
+        #_, inivalues = seq_iter.next()  # bat_size * from_target_size * to_target_size
+        _, inivalues = next(seq_iter)
         # only need start from start_tag
-        partition = inivalues[:, START_TAG, :].clone().view(batch_size, tag_size, 1)  # bat_size * to_target_size
+        #partition = inivalues[:, START_TAG, :].clone().view(batch_size, tag_size, 1)  # bat_size * to_target_size
+        partition = inivalues[:, START_TAG, :].clone().view(batch_size, tag_size)
         partition_history.append(partition)
         # iter over last scores
         for idx, cur_values in seq_iter:
@@ -153,9 +177,15 @@ class CRF(nn.Module):
             partition_history.append(partition)
             ## cur_bp: (batch_size, tag_size) max source score position in current tag
             ## set padded label as 0, which will be filtered in post processing
-            cur_bp.masked_fill_(mask[idx].view(batch_size, 1).expand(batch_size, tag_size), 0) 
+            cur_bp.masked_fill_(mask[idx].bool().view(batch_size, 1).expand(batch_size, tag_size), 0) 
             back_points.append(cur_bp)
         ### add score to final STOP_TAG
+        #print(len(partition_history))
+        #for a in partition_history:
+        #    print("----")
+        #    print(a.shape)
+        #print(partition_history)
+        #torch.cat(partition_history,0)
         partition_history = torch.cat(partition_history,0).view(seq_len, batch_size,-1).transpose(1,0).contiguous() ## (batch_size, seq_len. tag_size)
         ### get the last position for each setences, and select the last partitions using gather()
         last_position = length_mask.view(batch_size,1,1).expand(batch_size, 1, tag_size) -1
@@ -239,7 +269,7 @@ class CRF(nn.Module):
         ### need convert tags id to search from 400 positions of scores
         tg_energy = torch.gather(scores.view(seq_len, batch_size, -1), 2, new_tags).view(seq_len, batch_size)  # seq_len * bat_size
         ## mask transpose to (seq_len, batch_size)
-        tg_energy = tg_energy.masked_select(mask.transpose(1,0))
+        tg_energy = tg_energy.masked_select(mask.bool().transpose(1,0))
         
         # ## calculate the score from START_TAG to first label
         # start_transition = self.transitions[START_TAG,:].view(1, tag_size).expand(batch_size, tag_size)
@@ -251,12 +281,17 @@ class CRF(nn.Module):
         return gold_score
 
     def neg_log_likelihood_loss(self, feats, mask, tags):
+        #print("begin crf!")
         # nonegative log likelihood
+        #print(feats.shape)   ######(batch_size, sent_len, label_alphabet_size)
+        #print(mask.shape)    ######(batch_size, sent_len)
+        #print(tags.shape)    ######(batch_size, sent_len)
         batch_size = feats.size(0)
         forward_score, scores = self._calculate_PZ(feats, mask)
         gold_score = self._score_sentence(scores, mask, tags)
         # print "batch, f:", forward_score.data[0], " g:", gold_score.data[0], " dis:", forward_score.data[0] - gold_score.data[0]
         # exit(0)
+        #print("end crf!")
         if self.average_batch:
             return (forward_score - gold_score)/batch_size
         else:

@@ -10,14 +10,14 @@ import torch.nn.functional as F
 import numpy as np
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 # from kblayer import GazLayer
-from charbilstm import CharBiLSTM
-from charcnn import CharCNN
-from latticelstm import LatticeLSTM
+from model.charbilstm import CharBiLSTM
+from model.charcnn import CharCNN
+from model.latticelstm import LatticeLSTM
 
 class BiLSTM(nn.Module):
     def __init__(self, data):
         super(BiLSTM, self).__init__()
-        print "build batched bilstm..."
+        print("build batched bilstm...")
         self.use_bigram = data.use_bigram
         self.gpu = data.HP_gpu
         self.use_char = data.HP_use_char
@@ -32,7 +32,7 @@ class BiLSTM(nn.Module):
             elif data.char_features == "LSTM":
                 self.char_feature = CharBiLSTM(data.char_alphabet.size(), self.char_embedding_dim, self.char_hidden_dim, data.HP_dropout, self.gpu)
             else:
-                print "Error char feature selection, please check parameter data.char_features (either CNN or LSTM)."
+                print("Error char feature selection, please check parameter data.char_features (either CNN or LSTM).")
                 exit(0)
         self.embedding_dim = data.word_emb_dim
         self.hidden_dim = data.HP_hidden_dim
@@ -102,8 +102,12 @@ class BiLSTM(nn.Module):
                 Variable(sent_len, batch_size, hidden_dim)
         """
         batch_size = word_inputs.size(0)
+        
+        #print("batch_size: %d" % (batch_size))
         sent_len = word_inputs.size(1)
+        #print("sent_len: %d" % (sent_len))
         word_embs =  self.word_embeddings(word_inputs)
+        #print(word_embs.shape)  ##(batch_size, sent_len, embedding_dim)
         if self.use_bigram:
             biword_embs = self.biword_embeddings(biword_inputs)
             word_embs = torch.cat([word_embs, biword_embs],2)
@@ -114,24 +118,36 @@ class BiLSTM(nn.Module):
             char_features = char_features.view(batch_size,sent_len,-1)
             ## concat word and char together
             word_embs = torch.cat([word_embs, char_features], 2)
+        #print(word_embs.shape)  ##(batch_size, sent_len, lstm_input)
         word_embs = self.drop(word_embs)
+        #print(self.hidden_dim)  ##self.hidden_dim
         # packed_words = pack_padded_sequence(word_embs, word_seq_lengths.cpu().numpy(), True)
         hidden = None
         lstm_out, hidden = self.forward_lstm(word_embs, gaz_list, hidden)
+        #print(lstm_out.shape)   ##(batch_size, sent_len, hidden_dim/2)
+        #print(hidden.shape)     ##(batch_size, sent_len, hidden_dim/2)
         if self.bilstm_flag:
             backward_hidden = None 
             backward_lstm_out, backward_hidden = self.backward_lstm(word_embs, gaz_list, backward_hidden)
-            lstm_out = torch.cat([lstm_out, backward_lstm_out],2)
+            #print(backward_lstm_out.shape)   ##(batch_size, sent_len, hidden_dim/2)
+            #print(backward_hidden.shape)     ##(batch_size, sent_len, hidden_dim/2)
+            lstm_out = torch.cat([lstm_out, backward_lstm_out],2)   ##(batch_size, sent_len, hidden_dim)
         # lstm_out, _ = pad_packed_sequence(lstm_out)
-        lstm_out = self.droplstm(lstm_out)
+        #print(lstm_out.shape)
+        lstm_out = self.droplstm(lstm_out)   ##(batch_size, sent_len, hidden_dim)
+        
         return lstm_out
 
 
 
     def get_output_score(self, gaz_list,  word_inputs, biword_inputs, word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover):
+        #print("*******************************")
         lstm_out = self.get_lstm_features(gaz_list, word_inputs,biword_inputs, word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover)
+        #print(lstm_out.shape)   ######(batch_size, sent_len, hidden_dim)
         ## lstm_out (batch_size, sent_len, hidden_dim)
         outputs = self.hidden2tag(lstm_out)
+        #print(outputs.shape)    ######(batch_size, sent_len, label_alphabet_size)
+        #print("------------------------------")
         return outputs
     
 

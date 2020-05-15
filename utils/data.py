@@ -5,10 +5,10 @@
 # @Last Modified time: 2018-01-29 15:26:51
 import sys
 import numpy as np
-from alphabet import Alphabet
-from functions import *
-import cPickle as pickle
-from gazetteer import Gazetteer
+from utils.alphabet import Alphabet
+from utils.functions import *
+import pickle as pickle
+from utils.gazetteer import Gazetteer
 
 
 START = "</s>"
@@ -51,6 +51,7 @@ class Data:
         self.dev_Ids = []
         self.test_Ids = []
         self.raw_Ids = []
+
         self.use_bigram = True
         self.word_emb_dim = 50
         self.biword_emb_dim = 50
@@ -67,6 +68,7 @@ class Data:
         self.label_alphabet_size = 0
         ### hyperparameters
         self.HP_iteration = 100
+        #self.HP_iteration = 16
         self.HP_batch_size = 10
         self.HP_char_hidden_dim = 50
         self.HP_hidden_dim = 200
@@ -127,7 +129,7 @@ class Data:
     def refresh_label_alphabet(self, input_file):
         old_size = self.label_alphabet_size
         self.label_alphabet.clear(True)
-        in_lines = open(input_file,'r').readlines()
+        in_lines = open(input_file,'r',encoding= 'utf-8').readlines()
         for line in in_lines:
             if len(line) > 2:
                 pairs = line.strip().split()
@@ -152,19 +154,21 @@ class Data:
 
 
     def build_alphabet(self, input_file):
-        in_lines = open(input_file,'r').readlines()
-        for idx in xrange(len(in_lines)):
+        in_lines = open(input_file,'r',encoding= 'utf-8').readlines()
+        for idx in range(len(in_lines)):
             line = in_lines[idx]
             if len(line) > 2:
                 pairs = line.strip().split()
-                word = pairs[0].decode('utf-8')
+                #word = pairs[0].decode('utf-8')
+                word = pairs[0]
                 if self.number_normalized:
                     word = normalize_word(word)
                 label = pairs[-1]
                 self.label_alphabet.add(label)
                 self.word_alphabet.add(word)
                 if idx < len(in_lines) - 1 and len(in_lines[idx+1]) > 2:
-                    biword = word + in_lines[idx+1].strip().split()[0].decode('utf-8')
+                    #biword = word + in_lines[idx+1].strip().split()[0].decode('utf-8')
+                    biword = word + in_lines[idx+1].strip().split()[0]
                 else:
                     biword = word + NULLKEY
                 self.biword_alphabet.add(biword)
@@ -174,6 +178,8 @@ class Data:
         self.biword_alphabet_size = self.biword_alphabet.size()
         self.char_alphabet_size = self.char_alphabet.size()
         self.label_alphabet_size = self.label_alphabet.size()
+        #print(self.label_alphabet_size)
+        #print(self.label_alphabet.instance2index)
         startS = False
         startB = False
         for label,_ in self.label_alphabet.iteritems():
@@ -191,22 +197,24 @@ class Data:
     def build_gaz_file(self, gaz_file):
         ## build gaz file,initial read gaz embedding file
         if gaz_file:
-            fins = open(gaz_file, 'r').readlines()
+            fins = open(gaz_file, 'r',encoding= 'utf-8').readlines()
             for fin in fins:
-                fin = fin.strip().split()[0].decode('utf-8')
+                #fin = fin.strip().split()[0].decode('utf-8')
+                fin = fin.strip().split()[0]
                 if fin:
                     self.gaz.insert(fin, "one_source")
-            print "Load gaz file: ", gaz_file, " total size:", self.gaz.size()
+            print("Load gaz file: %s, total size: %d"%(gaz_file,self.gaz.size() ) )
         else:
-            print "Gaz file is None, load nothing"
+            print("Gaz file is None, load nothing")
 
 
     def build_gaz_alphabet(self, input_file):
-        in_lines = open(input_file,'r').readlines()
+        in_lines = open(input_file,'r',encoding= 'utf-8').readlines()
         word_list = []
         for line in in_lines:
             if len(line) > 3:
-                word = line.split()[0].decode('utf-8')
+                #word = line.split()[0].decode('utf-8')
+                word = line.split()[0]
                 if self.number_normalized:
                     word = normalize_word(word)
                 word_list.append(word)
@@ -216,9 +224,10 @@ class Data:
                     matched_entity = self.gaz.enumerateMatchList(word_list[idx:])
                     for entity in matched_entity:
                         # print entity, self.gaz.searchId(entity),self.gaz.searchType(entity)
+                        #print(entity)
                         self.gaz_alphabet.add(entity)
                 word_list = []
-        print "gaz alphabet size:", self.gaz_alphabet.size()
+        print("gaz alphabet size: %d" %(self.gaz_alphabet.size()))
 
 
     def fix_alphabet(self):
@@ -230,15 +239,15 @@ class Data:
 
 
     def build_word_pretrain_emb(self, emb_path):
-        print "build word pretrain emb..."
+        print("build word pretrain emb...")
         self.pretrain_word_embedding, self.word_emb_dim = build_pretrain_embedding(emb_path, self.word_alphabet, self.word_emb_dim, self.norm_word_emb)
 
     def build_biword_pretrain_emb(self, emb_path):
-        print "build biword pretrain emb..."
+        print("build biword pretrain emb...")
         self.pretrain_biword_embedding, self.biword_emb_dim = build_pretrain_embedding(emb_path, self.biword_alphabet, self.biword_emb_dim, self.norm_biword_emb)
 
     def build_gaz_pretrain_emb(self, emb_path):
-        print "build gaz pretrain emb..."
+        print("build gaz pretrain emb...")
         self.pretrain_gaz_embedding, self.gaz_emb_dim = build_pretrain_embedding(emb_path, self.gaz_alphabet,  self.gaz_emb_dim, self.norm_gaz_emb)
 
 

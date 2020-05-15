@@ -13,7 +13,7 @@ import numpy as np
 class CharBiLSTM(nn.Module):
     def __init__(self, alphabet_size, embedding_dim, hidden_dim, dropout, gpu, bidirect_flag = True):
         super(CharBiLSTM, self).__init__()
-        print "build batched char bilstm..."
+        print("build batched char bilstm...")
         self.gpu = gpu
         self.hidden_dim = hidden_dim
         if bidirect_flag:
@@ -40,7 +40,7 @@ class CharBiLSTM(nn.Module):
         """
             input:  
                 input: Variable(batch_size, word_length)
-                seq_lengths: numpy array (batch_size,  1)
+                seq_lengths: numpy array (batch_size)
             output: 
                 Variable(batch_size, char_hidden_dim)
             Note it only accepts ordered (length) variable, length size is recorded in seq_lengths
@@ -48,7 +48,7 @@ class CharBiLSTM(nn.Module):
         batch_size = input.size(0)
         char_embeds = self.char_drop(self.char_embeddings(input))
         char_hidden = None
-        pack_input = pack_padded_sequence(char_embeds, seq_lengths, True)
+        pack_input = pack_padded_sequence(char_embeds, seq_lengths, True)   ###因为word_length是不同的
         char_rnn_out, char_hidden = self.char_lstm(pack_input, char_hidden)
         char_rnn_out, _ = pad_packed_sequence(char_rnn_out)
         return char_hidden[0].transpose(1,0).contiguous().view(batch_size,-1)
